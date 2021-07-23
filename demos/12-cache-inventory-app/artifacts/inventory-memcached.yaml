@@ -1,0 +1,264 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: This template deploys a modified Inventory App from ARCHIT labs (v6.8) using a cache layer
+
+Mappings:
+  RegionMap:
+    us-east-1:
+      AMI: ami-02354e95b39ca8dec
+    us-east-2:
+      AMI: ami-07c8bc5c1ce9598c3
+    us-west-1:
+      AMI: ami-05655c267c89566dd
+    us-west-2:
+      AMI: ami-0a07be880014c7b8e
+Resources:
+
+  myLBSecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupDescription: Allow HTTP only into LoadBalancer
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+      VpcId: !ImportValue 'archit-accel-demos-networking-VPCID'
+      Tags:
+        - Key: DEMO
+          Value: 12-cache-inventory-app
+
+  myAppSecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    DependsOn: myLBSecurityGroup
+    Properties:
+      GroupDescription: Allow HTTP only into Web App from LoadBalancer
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          SourceSecurityGroupId: !GetAtt myLBSecurityGroup.GroupId
+          SourceSecurityGroupOwnerId: !Ref 'AWS::AccountId'
+      VpcId: !ImportValue 'archit-accel-demos-networking-VPCID'
+      Tags:
+        - Key: DEMO
+          Value: 12-cache-inventory-app
+
+  myIAMRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonEC2RoleforSSM
+        - arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+
+  myParamPolicies:
+    Type: 'AWS::IAM::Policy'
+    DependsOn: myIAMRole
+    Properties:
+      PolicyName: root
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Action: 'ssm:*'
+            Resource: 'arn:aws:ssm:*:*:parameter/inventory-app/*'
+      Roles:
+        - Ref: myIAMRole
+
+  myInstanceProfile:
+    Type: 'AWS::IAM::InstanceProfile'
+    DependsOn: myIAMRole
+    Properties:
+      Path: /
+      Roles:
+        - !Ref myIAMRole
+
+  myAppLB:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    DependsOn: myLBSecurityGroup
+    Properties:
+      IpAddressType: ipv4
+      Scheme: internet-facing
+      SecurityGroups:
+        - !GetAtt myLBSecurityGroup.GroupId
+      Subnets:
+      - { "Fn::Select" : [ "0" , { "Fn::Split" : [ "," , {'Fn::ImportValue' : 'archit-accel-demos-networking-SUBNETS-PUBLIC'} ] } ] }
+      - { "Fn::Select" : [ "1" , { "Fn::Split" : [ "," , {'Fn::ImportValue' : 'archit-accel-demos-networking-SUBNETS-PUBLIC'} ] } ] }
+      Tags:
+        - Key: DEMO
+          Value: 12-cache-inventory-app
+      Type: application
+
+  myAppLBListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    DependsOn:
+      - myAppLB
+      - myAppLBTargetGroup
+    Properties:
+      LoadBalancerArn: !Ref myAppLB
+      Port: 80
+      Protocol: HTTP
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref myAppLBTargetGroup
+
+  myAppLBTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    DependsOn: myAppLB
+    Properties:
+      VpcId: !ImportValue 'archit-accel-demos-networking-VPCID'
+      Port: 80
+      Protocol: HTTP
+
+  myAppAutoScaleGroupLaunchConfig:
+    Type: AWS::AutoScaling::LaunchConfiguration
+    Properties:
+      ImageId: !FindInMap [ RegionMap, !Ref "AWS::Region", AMI ]
+      SecurityGroups:
+        - !GetAtt myAppSecurityGroup.GroupId
+      UserData:
+        Fn::Base64:
+          !Sub |
+            #!/bin/bash -xe
+            exec > >(tee /var/log/user-data.log|logger -t user-data -s 2>/dev/console) 2>&1
+            yum update -y
+            yum install -y httpd mysql
+            sudo amazon-linux-extras install -y php7.2
+            wget https://mglab-aws-samples.s3.amazonaws.com/classes/archit/10/inventory-app-memcache.zip
+            unzip -o inventory-app-memcache.zip -d /var/www/html/
+            wget https://mglab-aws-samples.s3.amazonaws.com/classes/archit/10/aws-php-sdk-3.62.3.zip -O aws.zip
+            unzip aws -d /var/www/html
+            wget https://elasticache-downloads.s3.amazonaws.com/ClusterClient/PHP-7.2/latest-64bit
+            tar -zxvf latest-64bit
+            sudo mv amazon-elasticache-cluster-client.so /usr/lib64/php/modules/
+            sudo chmod 755 /usr/lib64/php/modules/amazon-elasticache-cluster-client.so
+            echo "extension=amazon-elasticache-cluster-client" | sudo tee --append /etc/php.d/50-memcached.ini
+            chkconfig httpd on
+            service httpd start
+      InstanceType: t3.small
+      IamInstanceProfile: !Ref myInstanceProfile
+
+  myAppAutoScaleGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    DependsOn:
+      - myAppAutoScaleGroupLaunchConfig
+      - myAppLBTargetGroup
+    Properties:
+      LaunchConfigurationName: !Ref myAppAutoScaleGroupLaunchConfig
+      VPCZoneIdentifier:
+        - { "Fn::Select" : [ "0" , { "Fn::Split" : [ "," , {'Fn::ImportValue' : 'archit-accel-demos-networking-SUBNETS-PUBLIC'} ] } ] }
+        - { "Fn::Select" : [ "1" , { "Fn::Split" : [ "," , {'Fn::ImportValue' : 'archit-accel-demos-networking-SUBNETS-PUBLIC'} ] } ] }
+      TargetGroupARNs:
+        - !Ref myAppLBTargetGroup
+      Cooldown: 120
+      DesiredCapacity: 2
+      MaxSize: 3
+      MinSize: 2
+      Tags:
+        - Key: CLASS
+          Value: ARCHIT
+          PropagateAtLaunch: 'true'
+        - Key: Name
+          Value: !Join [ "", [ {"Ref": "AWS::StackName"}, "-ASG-App-Instance" ]]
+          PropagateAtLaunch: 'true'
+
+  myElasticacheSecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupDescription: Elasticache Security Group
+      VpcId: !ImportValue 'archit-accel-demos-networking-VPCID'
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: '11211'
+          ToPort: '11211'
+          SourceSecurityGroupId: !GetAtt myAppSecurityGroup.GroupId
+          SourceSecurityGroupOwnerId: !Ref 'AWS::AccountId'
+
+  myElasticacheSubnetGroup:
+    Type: AWS::ElastiCache::SubnetGroup
+    Properties:
+      CacheSubnetGroupName: !Sub "${AWS::StackName}-memcache-subnet-grp"
+      Description: 'For CLASS=ARCHIT demo 10'
+      SubnetIds:
+        - { "Fn::Select" : [ "0" , { "Fn::Split" : [ "," , {'Fn::ImportValue' : 'archit-accel-demos-networking-SUBNETS-PRIVATE'} ] } ] }
+        - { "Fn::Select" : [ "1" , { "Fn::Split" : [ "," , {'Fn::ImportValue' : 'archit-accel-demos-networking-SUBNETS-PRIVATE'} ] } ] }
+
+  myElasticacheCluster:
+    Type: 'AWS::ElastiCache::CacheCluster'
+    Properties:
+      ClusterName: !Sub "${AWS::StackName}-memcache"
+      Engine: memcached
+      CacheNodeType: cache.t2.micro
+      NumCacheNodes: '1'
+      CacheSubnetGroupName: !Ref myElasticacheSubnetGroup
+      VpcSecurityGroupIds:
+        - !GetAtt myElasticacheSecurityGroup.GroupId
+
+  mySSMparamDb:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Description: "DB name for Inv app"
+      Name: '/inventory-app/db'
+      Tier: Standard
+      Type: String
+      Value: 'inventory'
+
+  mySSMparamDbEndpoint:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Description: "DB url for Inv app"
+      Name: '/inventory-app/endpoint'
+      Tier: Standard
+      Type: String
+      Value: !ImportValue 'archit-accel-demos-04-rds-mysql-access-DBENDPOINT'
+
+  mySSMparamUser:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Description: "DB user for Inv app"
+      Name: '/inventory-app/username'
+      Tier: Standard
+      Type: String
+      Value: 'admin'
+
+  mySSMparamPasswd:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Description: "DB passwd for Inv app - should be securestring so this is just a demo use case"
+      Name: '/inventory-app/password'
+      Tier: Standard
+      Type: String
+      Value: 'Passw0rd'
+
+  mySSMparamCacheEP:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Description: "Memcache Cluster name for Inv app"
+      Name: '/inventory-app/memcacheendpoint'
+      Tier: Standard
+      Type: String
+      Value: !GetAtt myElasticacheCluster.ConfigurationEndpoint.Address
+
+  mySSMparamCachePort:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Description: "DB name for Inv app"
+      Name: '/inventory-app/memcacheport'
+      Tier: Standard
+      Type: String
+      Value: !GetAtt myElasticacheCluster.ConfigurationEndpoint.Port
+
+Outputs:
+  AppInstancePublicDNS:
+    Description: The public DNS name of the Load Balancer for the App
+    Value: !GetAtt myAppLB.DNSName

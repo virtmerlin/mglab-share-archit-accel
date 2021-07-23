@@ -1,0 +1,222 @@
+---
+AWSTemplateFormatVersion: '2010-09-09'
+
+Parameters:
+  InstanceType:
+    Description: WebServer EC2 instance type
+    Type: String
+    Default: t3.small
+    AllowedValues: [t3.nano, t3.micro, t3.small, t3.medium, t3.large, t3.xlarge, t3.2xlarge]
+  OperatorEMail:
+    Description: EMail address to notify if there are any scaling operations
+    Type: String
+    Default: mglynn@amazon.com
+    AllowedPattern: "([a-zA-Z0-9_\\-\\.]+)@((\\[[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}\\.)|(([a-zA-Z0-9\\-]+\\.)+))([a-zA-Z]{2,4}|[0-9]{1,3})(\\]?)"
+    ConstraintDescription: must be a valid email address.
+  LatestAmiId:
+    Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
+    Default: '/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2'
+
+Resources:
+
+  NotificationTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      Subscription:
+      - Endpoint:
+          Ref: OperatorEMail
+        Protocol: email
+
+  InstanceRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      RoleName: !Sub '${AWS::StackName}-instance-role'
+      Description: "Role for 06-elb-classic-and-asg"
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonEC2RoleforSSM
+        - arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+
+  EC2InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: !Sub '${AWS::StackName}-instance-profile'
+      Roles:
+        - !Ref 'InstanceRole'
+
+  WebServerGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      VPCZoneIdentifier:
+      - { "Fn::Select" : [ "0" , { "Fn::Split" : [ "," , {'Fn::ImportValue' : 'archit-accel-demos-networking-SUBNETS-PRIVATE'} ] } ] }
+      - { "Fn::Select" : [ "1" , { "Fn::Split" : [ "," , {'Fn::ImportValue' : 'archit-accel-demos-networking-SUBNETS-PRIVATE'} ] } ] }
+      LaunchConfigurationName:
+        Ref: LaunchConfig
+      MinSize: '2'
+      MaxSize: '5'
+      LoadBalancerNames:
+      - Ref: ElasticLoadBalancer
+      NotificationConfiguration:
+        TopicARN:
+          Ref: NotificationTopic
+        NotificationTypes:
+        - autoscaling:EC2_INSTANCE_LAUNCH
+        - autoscaling:EC2_INSTANCE_LAUNCH_ERROR
+        - autoscaling:EC2_INSTANCE_TERMINATE
+        - autoscaling:EC2_INSTANCE_TERMINATE_ERROR
+      Tags:
+      - Key: Name
+        PropagateAtLaunch: true
+        Value: !Sub ${AWS::StackName}-Node
+      - Key: CLASS
+        PropagateAtLaunch: true
+        Value: CPE
+    CreationPolicy:
+      ResourceSignal:
+        Timeout: PT15M
+        Count: 1
+    UpdatePolicy:
+      AutoScalingRollingUpdate:
+        MinInstancesInService: 1
+        MaxBatchSize: 1
+        PauseTime: PT15M
+        WaitOnResourceSignals: true
+
+  LaunchConfig:
+    Type: AWS::AutoScaling::LaunchConfiguration
+    Properties:
+      IamInstanceProfile: !Ref EC2InstanceProfile
+      ImageId: !Ref LatestAmiId
+      SecurityGroups:
+      - Ref: InstanceSecurityGroup
+      InstanceType:
+        Ref: InstanceType
+      UserData:
+        Fn::Base64: !Sub |
+           #!/bin/bash
+           exec > >(tee /var/log/user-data.log|logger -t user-data -s 2>/dev/console) 2>&1
+           mkdir -p /usr/local/jre
+           aws s3 cp s3://mglab-aws-samples/classes/archit/03/java-tv-spring-0.0.1.jar /usr/local/jre
+           yum install java-1.8.0-openjdk -y
+           java -jar /usr/local/jre/java-tv-spring-0.0.1.jar &
+           yum update -y aws-cfn-bootstrap
+           /opt/aws/bin/cfn-signal -e $? --stack ${AWS::StackName} --resource WebServerGroup --region ${AWS::Region}
+
+  WebServerScaleUpPolicy:
+    Type: AWS::AutoScaling::ScalingPolicy
+    Properties:
+      AdjustmentType: ChangeInCapacity
+      AutoScalingGroupName:
+        Ref: WebServerGroup
+      Cooldown: '60'
+      ScalingAdjustment: '2'
+
+  WebServerScaleDownPolicy:
+    Type: AWS::AutoScaling::ScalingPolicy
+    Properties:
+      AdjustmentType: ChangeInCapacity
+      AutoScalingGroupName:
+        Ref: WebServerGroup
+      Cooldown: '60'
+      ScalingAdjustment: "-1"
+
+  LoadAlarmHigh:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: Scale-up if NetworkIn is over 5K for 3 minutes
+      MetricName: NetworkIn
+      Namespace: AWS/EC2
+      Statistic: Average
+      Period: '60'
+      EvaluationPeriods: '3'
+      Threshold: '75000'
+      AlarmActions:
+      - Ref: WebServerScaleUpPolicy
+      Dimensions:
+      - Name: AutoScalingGroupName
+        Value:
+          Ref: WebServerGroup
+      ComparisonOperator: GreaterThanThreshold
+
+  LoadAlarmLow:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: Scale-down if lower
+      MetricName: NetworkIn
+      Namespace: AWS/EC2
+      Statistic: Average
+      Period: '60'
+      EvaluationPeriods: '3'
+      Threshold: '75000'
+      AlarmActions:
+      - Ref: WebServerScaleDownPolicy
+      Dimensions:
+      - Name: AutoScalingGroupName
+        Value:
+          Ref: WebServerGroup
+      ComparisonOperator: LessThanThreshold
+
+  ElasticLoadBalancer:
+    Type: AWS::ElasticLoadBalancing::LoadBalancer
+    Properties:
+      Subnets:
+      - { "Fn::Select" : [ "0" , { "Fn::Split" : [ "," , {'Fn::ImportValue' : 'archit-accel-demos-networking-SUBNETS-PUBLIC'} ] } ] }
+      - { "Fn::Select" : [ "1" , { "Fn::Split" : [ "," , {'Fn::ImportValue' : 'archit-accel-demos-networking-SUBNETS-PUBLIC'} ] } ] }
+      SecurityGroups:
+      - Ref: ELBSecurityGroup
+      CrossZone: 'true'
+      Listeners:
+      - LoadBalancerPort: '80'
+        InstancePort: '8080'
+        Protocol: HTTP
+      HealthCheck:
+        Target: HTTP:8080/
+        HealthyThreshold: '3'
+        UnhealthyThreshold: '5'
+        Interval: '30'
+        Timeout: '5'
+
+  ELBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Group for the LoadBalancer
+      VpcId: !ImportValue 'archit-accel-demos-networking-VPCID'
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: '80'
+        ToPort: '80'
+        CidrIp: '0.0.0.0/0'
+
+  InstanceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Enable SSH access and HTTP from the load balancer only
+      VpcId: !ImportValue 'archit-accel-demos-networking-VPCID'
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: '8080'
+        ToPort: '8080'
+        SourceSecurityGroupId:
+          Fn::GetAtt:
+          - ELBSecurityGroup
+          - GroupId
+Outputs:
+  URL:
+    Description: The URL of the website
+    Value:
+      Fn::Join:
+      - ''
+      - - http://
+        - Fn::GetAtt:
+          - ElasticLoadBalancer
+          - DNSName

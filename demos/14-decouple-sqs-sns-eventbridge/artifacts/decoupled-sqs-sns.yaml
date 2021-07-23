@@ -1,0 +1,60 @@
+AWSTemplateFormatVersion: 2010-09-09
+
+Resources:
+
+  mytopic:
+    Type: 'AWS::SNS::Topic'
+    Properties:
+      TopicName: !Sub "${AWS::StackName}-SNS"
+
+  mysqs:
+    Type: 'AWS::SQS::Queue'
+    Properties:
+      QueueName: !Sub "${AWS::StackName}-SQS"
+
+  mysnspolicy:
+    Type: AWS::SNS::TopicPolicy
+    Properties:
+      PolicyDocument:
+        Id: MyTopicPolicy
+        Version: '2012-10-17'
+        Statement:
+        - Sid: My-statement-id
+          Effect: Allow
+          Principal:
+            Service: "events.amazonaws.com"
+          Action: sns:Publish
+          Resource: !Ref mytopic
+      Topics:
+      - !Ref mytopic
+
+  mysqspolicy:
+    Type: 'AWS::SQS::QueuePolicy'
+    Properties:
+      PolicyDocument:
+        Id: MyTopicPolicy
+        Version: '2012-10-17'
+        Statement:
+        - Sid: My-statement-id
+          Effect: Allow
+          Principal:
+            Service: "sns.amazonaws.com"
+          Action: sqs:SendMessage
+          Resource: !GetAtt mysqs.Arn
+      Queues:
+      - !Ref mysqs
+
+  myec2instancetermeventrule:
+    Type: 'AWS::Events::Rule'
+    Properties:
+      Description: Trigger When an Instance Terminates
+      Name: !Sub "${AWS::StackName}-RULE"
+      EventPattern:
+        source:
+          - aws.ec2
+        detail-type:
+          - "EC2 Instance State-change Notification"
+      State: ENABLED
+      Targets:
+        - Arn: !Ref mytopic
+          Id: Id1234

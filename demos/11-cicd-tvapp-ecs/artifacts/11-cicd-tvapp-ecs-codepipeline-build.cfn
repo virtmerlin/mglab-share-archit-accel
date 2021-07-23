@@ -1,0 +1,85 @@
+---
+AWSTemplateFormatVersion: 2010-09-09
+
+
+Description: >
+  This template shows how to use AWS CodePipeline and AWS CodeBuild to build an
+  automated continuous deployment pipeline to Amazon Elastic Container Service
+  (Amazon ECS) using clusters powered by AWS Fargate or Amazon Elastic Compute
+  Cloud (Amazon EC2).
+Parameters:
+  LaunchType:
+    Type: String
+    Default: Fargate
+    AllowedValues:
+      - Fargate
+      - EC2
+    Description: >
+      The launch type for your service. Selecting EC2 will create an Auto
+      Scaling group of t2.micro instances for your cluster. See
+      https://docs.aws.amazon.com/AmazonECS/latest/developerguide/launch_types.html
+      to learn more about launch types.
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterLabels:
+      LaunchType:
+        default: "Launch Type"
+    ParameterGroups:
+      - Label:
+          default: Cluster Configuration
+        Parameters:
+          - LaunchType
+
+Resources:
+
+  LoadBalancer:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: https://mglab-aws-samples.s3.amazonaws.com/classes/archit-accel/11/cfn-templates/load-balancer.yaml
+      Parameters:
+        Subnet1: { "Fn::Select" : [ "0" , { "Fn::Split" : [ "," , {'Fn::ImportValue' : 'archit-accel-demos-networking-SUBNETS-PUBLIC'} ] } ] }
+        Subnet2: { "Fn::Select" : [ "1" , { "Fn::Split" : [ "," , {'Fn::ImportValue' : 'archit-accel-demos-networking-SUBNETS-PUBLIC'} ] } ] }
+        VpcId: !ImportValue 'archit-accel-demos-networking-VPCID'
+
+  Cluster:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: https://mglab-aws-samples.s3.amazonaws.com/classes/archit-accel/11/cfn-templates/ecs-cluster.yaml
+      Parameters:
+        LaunchType: !Ref LaunchType
+        SourceSecurityGroup: !GetAtt LoadBalancer.Outputs.SecurityGroup
+        Subnets: !ImportValue 'archit-accel-demos-networking-SUBNETS-PRIVATE'
+        VpcId: !ImportValue 'archit-accel-demos-networking-VPCID'
+
+  TVapp:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: https://mglab-aws-samples.s3.amazonaws.com/classes/archit-accel/11/cfn-templates/ecs-tvapp-svc.yaml
+      Parameters:
+        Subnet1: { "Fn::Select" : [ "0" , { "Fn::Split" : [ "," , {'Fn::ImportValue' : 'archit-accel-demos-networking-SUBNETS-PUBLIC'} ] } ] }
+        Subnet2: { "Fn::Select" : [ "1" , { "Fn::Split" : [ "," , {'Fn::ImportValue' : 'archit-accel-demos-networking-SUBNETS-PUBLIC'} ] } ] }
+        ALB: !GetAtt LoadBalancer.Outputs.ALBPublic
+        Cluster: !GetAtt Cluster.Outputs.ClusterName
+        SecurityGroup: !GetAtt LoadBalancer.Outputs.SecurityGroupECSTask
+        TargetGroup: !GetAtt LoadBalancer.Outputs.TargetGroup
+
+  DeploymentPipeline:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: https://mglab-aws-samples.s3.amazonaws.com/classes/archit-accel/11/cfn-templates/deployment-pipeline.yaml
+      Parameters:
+        Cluster: !GetAtt Cluster.Outputs.ClusterName
+        Service: !GetAtt TVapp.Outputs.Service
+        ECRRepoName: !Ref AWS::StackName
+
+
+Outputs:
+
+  ServiceUrl:
+    Description: The sample service that is being continuously deployed.
+    Value: !GetAtt LoadBalancer.Outputs.ServiceUrl
+
+  CCRepository:
+    Description: The sample service that is being continuously deployed.
+    Value: !GetAtt DeploymentPipeline.Outputs.CCRepository

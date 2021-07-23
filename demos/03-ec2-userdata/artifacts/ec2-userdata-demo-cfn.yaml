@@ -1,0 +1,76 @@
+Parameters:
+  InstanceType:
+    Description: WebServer EC2 instance type
+    Type: String
+    Default: t3.small
+    AllowedValues: [t3.nano, t3.micro, t3.small, t3.medium, t3.large, t3.xlarge, t3.2xlarge]
+  LatestAmiId:
+    Type:  'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
+    Default: '/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2'
+
+Resources:
+  InstanceRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      RoleName: !Sub '${AWS::StackName}-instance-role'
+      Description: "Role for 03-ec2-userdata"
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonEC2RoleforSSM
+        - arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+
+  EC2InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: !Sub '${AWS::StackName}-instance-profile'
+      Roles:
+        - !Ref 'InstanceRole'
+
+  EC2Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: !Ref 'InstanceType'
+      IamInstanceProfile: !Ref EC2InstanceProfile
+      SecurityGroupIds: [!Ref 'InstanceSecurityGroup']
+      ImageId: !Ref 'LatestAmiId'
+      SubnetId : !ImportValue 'archit-accel-demos-networking-C9Subnet'
+      UserData:
+        Fn::Base64: !Sub |
+           #!/bin/bash
+           exec > >(tee /var/log/user-data.log|logger -t user-data -s 2>/dev/console) 2>&1
+           mkdir -p /usr/local/jre
+           aws s3 cp s3://mglab-aws-samples/classes/archit/03/java-tv-spring-0.0.1.jar /usr/local/jre
+           yum install java-1.8.0-openjdk -y
+           java -jar /usr/local/jre/java-tv-spring-0.0.1.jar &
+           yum update -y aws-cfn-bootstrap
+           /opt/aws/bin/cfn-signal -e $? --stack ${AWS::StackName} --resource WebServerGroup --region ${AWS::Region}
+      Tags:
+      - Key: Name
+        Value: !Sub "${AWS::StackName}-TV-UserData"
+
+  InstanceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Enable HTTP access via port 8080
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: 8080
+        ToPort: 8080
+        CidrIp: '0.0.0.0/0'
+      VpcId: !ImportValue 'archit-accel-demos-networking-VPCID'
+
+Outputs:
+
+  URL:
+    Description: URL for TV App
+    Value: !Sub "http://${EC2Instance.PublicDnsName}:8080"

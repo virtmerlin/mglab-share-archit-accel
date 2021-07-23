@@ -1,0 +1,53 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: This template deploys a multi-zone RDS MySQL instance
+
+Resources:
+
+  myDBSecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupDescription: Allow only the WebApp to Connect to DB
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          CidrIp: '192.168.0.0/16'
+      VpcId: !ImportValue 'archit-accel-demos-networking-VPCID'
+
+  myDBSubnetGroup:
+    Type: 'AWS::RDS::DBSubnetGroup'
+    Properties:
+      DBSubnetGroupDescription: Subnet Group for Non Default VPCs
+      SubnetIds:
+        - { "Fn::Select" : [ "0" , { "Fn::Split" : [ "," , {'Fn::ImportValue' : 'archit-accel-demos-networking-SUBNETS-PRIVATE'} ] } ] }
+        - { "Fn::Select" : [ "1" , { "Fn::Split" : [ "," , {'Fn::ImportValue' : 'archit-accel-demos-networking-SUBNETS-PRIVATE'} ] } ] }
+
+
+  myDB:
+    Type: 'AWS::RDS::DBInstance'
+    DependsOn: myDBSecurityGroup
+    Properties:
+      VPCSecurityGroups:
+        - !GetAtt myDBSecurityGroup.GroupId
+      AllocatedStorage: '5'
+      DBInstanceClass: db.t3.small
+      DBSubnetGroupName: !Ref myDBSubnetGroup
+      DBInstanceIdentifier: !Sub "${AWS::StackName}-DB"
+      DBName: inventory
+      Engine: MySQL
+      MasterUsername: admin
+      MasterUserPassword: Passw0rd
+      MultiAZ: true
+    DeletionPolicy: Delete
+
+Outputs:
+
+  DBENDPOINT:
+    Description: The DNS endpoint to connect via mysql
+    Value: !GetAtt myDB.Endpoint.Address
+    Export:
+      Name: !Sub "${AWS::StackName}-DBENDPOINT"
+
+  DBPORT:
+    Description: The DNS port to connect via mysql
+    Value: !GetAtt myDB.Endpoint.Port
