@@ -36,14 +36,17 @@ Here is the folder structure for each demo:
   - _**an artifacts folder**_: (optional) will contain any yaml / json/ bins that you may use in running the demo(s).           
   - _**a tests folder**_: (optional) will contain some tests for the automation that will validate a demo is working on a regular schedule and post test results to the README.md.
 
-#### Agenda & Helpful Links
+#### Links
 
-[Example: ARCHIT-ACCEL Agenda]
+[ARCHIT-ACCEL Agenda]
 - [Day1](doc/images/day1.png)
 - [Day2](doc/images/day2.png)
 - [Day3](doc/images/day3.png)
 - [Day4](doc/images/day4.png)
 - [Day5](doc/images/day5.png)
+
+[ARCHIT-ACCEL Helpful Links](doc/Links.md)
+
 
 #### Demos
 Demo Name     | Demo Link     | Last Automated Test Timestamp
