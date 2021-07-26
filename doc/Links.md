@@ -20,7 +20,7 @@
   - [Marketplace AMIs](https://aws.amazon.com/marketplace)
   - [EC2 Instance Types](https://aws.amazon.com/ec2/instance-types/)
   - [EC2 'EBS Optimized' Instances](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ebs-optimized.html)
-  - [EC2 Instance Types w/ Instance Stores](https://aws.amazon.com/ec2/spot/instance-advisor/)
+  - [EC2 Instance Types w/ Instance Stores](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/InstanceStorage.html)
   - [EBS Volume Types](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ebs-volume-types.html)
   - [EFS Workshop Repo](https://github.com/aws-samples/amazon-efs-workshop)
   - [FSX Workshop Repo](https://github.com/aws-samples/amazon-fsx-workshop)
