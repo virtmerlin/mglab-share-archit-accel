@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: "2010-09-09"
-Description: A Cloud9 Environment for EKS Demo(s)
+Description: A Cloud9 Environment for Archit-Accel Demo(s)
 
 Resources:
 
