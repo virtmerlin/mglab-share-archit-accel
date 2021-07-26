@@ -1,4 +1,4 @@
-### 01-setup-cloud9
+### 00-setup-cloud9
 ##### GIVEN:
   - An AWS Account
   - An IAM user with Admin permissions in that account

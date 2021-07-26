@@ -7,6 +7,7 @@
   - [AWS Global Infra](https://aws.amazon.com/about-aws/global-infrastructure/?p=ngi&loc=1)
   - [Timeline of AWS Services](https://en.wikipedia.org/wiki/Timeline_of_Amazon_Web_Services)
   - [Global Submarine Cable Map](https://www.submarinecablemap.com/)
+  - [AWS Well Architected Tool](https://console.aws.amazon.com/wellarchitected/home)
 
 #### (2) The Simplest Architectures (S3):
 
