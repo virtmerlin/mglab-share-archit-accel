@@ -74,8 +74,8 @@ echo $C9_AWS_ACCT
 Only run these scripts if you are done cleaning &/or running all dependent demos.
 
 ```
-aws cloudformation delete-stack --region $C9_REGION --stack-name archit-demos-c9-dev-desktop
-aws cloudformation wait stack-delete-complete --region $C9_REGION --stack-name archit-demos-c9-dev-desktop
-aws cloudformation delete-stack --region $C9_REGION --stack-name archit-demos-networking
-aws cloudformation wait stack-delete-complete --region $C9_REGION --stack-name archit-demos-networking
+aws cloudformation delete-stack --region $C9_REGION --stack-name archit-accel-demos-c9-dev-desktop
+aws cloudformation wait stack-delete-complete --region $C9_REGION --stack-name archit-accel-demos-c9-dev-desktop
+aws cloudformation delete-stack --region $C9_REGION --stack-name archit-accel-demos-networking
+aws cloudformation wait stack-delete-complete --region $C9_REGION --stack-name archit-accel-demos-networking
 ```
