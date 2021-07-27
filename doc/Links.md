@@ -125,6 +125,7 @@
 #### (20) Understanding Costs:
 
   - [Setup CUR](https://docs.aws.amazon.com/cur/latest/userguide/cur-create.html)
+  - [Common Network Costs](https://aws.amazon.com/blogs/architecture/overview-of-data-transfer-costs-for-common-architectures/)
   - [Query CUR with Athena](https://docs.aws.amazon.com/cur/latest/userguide/use-athena-cf.html)
   - [Video: Compare Savings Plan to Reservations](https://www.youtube.com/watch?v=xjq-1CdvgQ8)
   - [Cost Workshop 101](https://activate-next.workshop.aws/001_intro.html)
