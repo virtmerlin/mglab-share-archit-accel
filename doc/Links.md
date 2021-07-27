@@ -40,6 +40,7 @@
 
   - [Cidr Tool](https://cidr.xyz/)
   - [Direct Connect Locations](https://aws.amazon.com/directconnect/features/#AWS_Direct_Connect_Locations)
+  - [VPC Endpoint Policy](https://docs.aws.amazon.com/vpc/latest/privatelink/vpc-endpoints-access.html)
   - [VPC Endpoint Workshop](https://www.vpcendpointworkshop.com/)
   - [TGW & Network Firewall Workshop](https://networkfirewall.workshop.aws/intro.html)
 
