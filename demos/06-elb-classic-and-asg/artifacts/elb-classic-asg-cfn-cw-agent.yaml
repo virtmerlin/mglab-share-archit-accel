@@ -143,7 +143,7 @@ Resources:
       Statistic: Average
       Period: '60'
       EvaluationPeriods: '3'
-      Threshold: '75000'
+      Threshold: '150000'
       AlarmActions:
       - Ref: WebServerScaleUpPolicy
       Dimensions:
@@ -161,7 +161,7 @@ Resources:
       Statistic: Average
       Period: '60'
       EvaluationPeriods: '3'
-      Threshold: '75000'
+      Threshold: '150000'
       AlarmActions:
       - Ref: WebServerScaleDownPolicy
       Dimensions:
